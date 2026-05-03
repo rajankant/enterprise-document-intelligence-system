@@ -9,7 +9,7 @@ class RuleBasedExtractor:
     # Common patterns
     PATTERNS = {
         "invoice_number": [
-            r"(?:Invoice|INV|Invoice #|Invoice Number)[\s:]*([A-Z0-9\-]+)",
+            r"(?:Invoice\s*(?:#|Number)?|INV)[\s:#-]*([A-Z0-9][A-Z0-9\-/#]+)",
             r"^[A-Z]{2,4}-\d{4}-\d{3,4}$"
         ],
         "amount": [
@@ -36,6 +36,33 @@ class RuleBasedExtractor:
             r"(?:GSTIN|PAN)[\s:]*([A-Z0-9]+)"
         ]
     }
+
+    JOB_DESCRIPTION_PATTERNS = {
+        "job_title": [
+            r"(?:Job Title|Position|Role)\s*[:\-]\s*([^\n]+)",
+            r"(?:Hiring|Opening)\s+(?:for\s+)?(?:a|an)?\s*([A-Za-z][A-Za-z\s/+-]+?)(?:\n|$)"
+        ],
+        "company": [
+            r"(?:Company|Organization|Employer)\s*[:\-]\s*([^\n]+)",
+            r"(?:About|About Us)\s*[:\-]?\s*([^\n]+)"
+        ],
+        "location": [
+            r"(?:Location|Work Location|Job Location)\s*[:\-]\s*([^\n]+)",
+            r"(?:Remote|Hybrid|Onsite)\s*(?:-|,)?\s*([A-Za-z][A-Za-z\s,]+)?"
+        ],
+        "salary_range": [
+            r"(?:Salary|Compensation|CTC|Pay)\s*[:\-]\s*([^\n]+)",
+            r"((?:₹|Rs\.?|INR|\$|USD)\s*[\d,.]+(?:\s*[-–]\s*(?:₹|Rs\.?|INR|\$|USD)?\s*[\d,.]+)?)"
+        ],
+        "requirements": [
+            r"(?:Requirements|Qualifications|Skills Required|Required Skills)\s*[:\-]?\s*([\s\S]{0,700}?)(?:\n\s*(?:Responsibilities|Benefits|About|Location|Salary)\b|$)"
+        ],
+        "responsibilities": [
+            r"(?:Responsibilities|Duties|What You(?:'|’)ll Do|Job Description)\s*[:\-]?\s*([\s\S]{0,700}?)(?:\n\s*(?:Requirements|Qualifications|Benefits|About|Location|Salary)\b|$)"
+        ],
+        "email": PATTERNS["email"],
+        "phone": PATTERNS["phone"],
+    }
     
     @classmethod
     def extract_field(cls, text: str, field_name: str, case_sensitive: bool = False) -> Tuple[Optional[str], float]:
@@ -61,6 +88,8 @@ class RuleBasedExtractor:
             if match:
                 # Return first capturing group or full match
                 value = match.group(1) if match.groups() else match.group(0)
+                if field_name == "amount" and "$" in match.group(0) and not value.strip().startswith("$"):
+                    value = f"${value}"
                 # Confidence based on pattern specificity
                 confidence = 0.9 if len(patterns) > 1 else 0.85
                 return value.strip(), confidence
@@ -68,7 +97,7 @@ class RuleBasedExtractor:
         return None, 0.0
     
     @classmethod
-    def extract_all(cls, text: str) -> Dict[str, Tuple[Optional[str], float]]:
+    def extract_all(cls, text: str, document_type: str = "invoice") -> Dict[str, Tuple[Optional[str], float]]:
         """
         Extract all known fields from text
         
@@ -79,12 +108,30 @@ class RuleBasedExtractor:
             Dictionary of {field_name: (value, confidence)}
         """
         results = {}
-        for field_name in cls.PATTERNS.keys():
+        patterns = cls.JOB_DESCRIPTION_PATTERNS if document_type == "job_description" else cls.PATTERNS
+
+        for field_name in patterns.keys():
             value, confidence = cls.extract_field(text, field_name)
+            if document_type == "job_description" and field_name in cls.JOB_DESCRIPTION_PATTERNS:
+                value, confidence = cls._extract_with_patterns(text, cls.JOB_DESCRIPTION_PATTERNS[field_name])
             if value:
                 results[field_name] = (value, confidence)
         
         return results
+
+    @classmethod
+    def _extract_with_patterns(cls, text: str, patterns: list, case_sensitive: bool = False) -> Tuple[Optional[str], float]:
+        flags = 0 if case_sensitive else re.IGNORECASE
+
+        for pattern in patterns:
+            match = re.search(pattern, text, flags)
+            if match:
+                value = match.group(1) if match.groups() else match.group(0)
+                value = re.sub(r"\s+", " ", value).strip(" -:\t\r\n")
+                if value:
+                    return value[:500], 0.85
+
+        return None, 0.0
     
     @classmethod
     def extract_line_items(cls, text: str) -> list:

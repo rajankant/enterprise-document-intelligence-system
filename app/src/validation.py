@@ -172,7 +172,13 @@ class ConfidenceScorer:
         if not extracted_fields:
             return 0.0
         
-        confidences = [conf for _, conf in extracted_fields.values()]
+        confidences = []
+        for field in extracted_fields.values():
+            if hasattr(field, "confidence"):
+                confidences.append(field.confidence)
+            elif isinstance(field, tuple):
+                confidences.append(field[1] if len(field) > 1 else field[0])
+
         return sum(confidences) / len(confidences) if confidences else 0.0
 
 

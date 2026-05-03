@@ -37,8 +37,8 @@ JSON Output
 - **Python 3.8+**
 - **FastAPI**: REST API framework
 - **Streamlit**: Web UI
-- **pdfplumber** / **PyMuPDF**: PDF text extraction
-- **OpenAI API**: LLM integration
+- **PaddleOCR**: PDF/image text extraction (completely free, runs locally)
+- **Google Gemini API**: LLM (free tier available)
 - **Pydantic**: Data validation
 - **Regex**: Pattern matching
 
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 Create `.env` file:
 ```bash
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and add your GEMINI_API_KEY (get free key from https://ai.google.dev)
 ```
 
 ### 2. Run Streamlit UI
@@ -296,4 +296,5 @@ For issues and feature requests, open an issue on GitHub.
 ---
 
 **Last Updated**: May 2026
-**Status**: In Development (Phase 2)
+**Status**: Phase 2 (LLM Integration with Free APIs)
+**Current Features**: PaddleOCR + Rule-based Extraction + Gemini LLM

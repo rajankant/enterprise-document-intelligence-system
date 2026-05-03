@@ -1,6 +1,13 @@
 import streamlit as st
 import json
+import tempfile
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from app.src.pipeline import ExtractionPipeline
 
 # Page config
@@ -49,8 +56,7 @@ if uploaded_file:
     if st.button("🔍 Extract Data", use_container_width=True):
         with st.spinner("Processing document..."):
             # Save uploaded file temporarily
-            temp_path = f"/tmp/{uploaded_file.name}"
-            Path("/tmp").mkdir(exist_ok=True)
+            temp_path = str(Path(tempfile.gettempdir()) / uploaded_file.name)
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
@@ -59,7 +65,10 @@ if uploaded_file:
             result = pipeline.process_document(temp_path, document_type)
             
             # Display results
-            st.success("✅ Processing complete!")
+            if result.error:
+                st.error("❌ Processing failed")
+            else:
+                st.success("✅ Processing complete!")
             
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
