@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Any
 from datetime import datetime
 
 
@@ -25,11 +25,12 @@ class RuleBasedExtractor:
             r"^([A-Za-z\s&,\.]+?)\n.*Invoice"
         ],
         "email": [
-            r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"
+            r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
+            r"(?:Email|Contact|E-mail)\s*[:\-]\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"
         ],
         "phone": [
-            r"(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})",
-            r"(?:\+\d{1,3}[-.\s]?)?\d{10,}"
+            r"((?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})",
+            r"((?:\+\d{1,3}[-.\s]?)?\d{10,})"
         ],
         "tax_id": [
             r"(?:Tax ID|TIN|GST|VAT)[\s:]*([A-Z0-9\-]+)",
@@ -118,6 +119,108 @@ class RuleBasedExtractor:
                 results[field_name] = (value, confidence)
         
         return results
+
+    @classmethod
+    def extract_all_with_attempts(cls, text: str, document_type: str = "invoice") -> Dict[str, Any]:
+        """
+        Extract all fields with ALL attempts (including failed/low-confidence ones)
+        
+        Args:
+            text: Input text
+            document_type: Type of document
+            
+        Returns:
+            Dictionary with successful extractions and all attempts
+        """
+        successful = {}
+        all_attempts = {}
+        patterns = cls.JOB_DESCRIPTION_PATTERNS if document_type == "job_description" else cls.PATTERNS
+
+        for field_name, field_patterns in patterns.items():
+            attempts = []
+            best_value = None
+            best_confidence = 0.0
+            
+            flags = re.IGNORECASE
+            
+            for pattern in field_patterns:
+                match = re.search(pattern, text, flags)
+                if match:
+                    value = match.group(1) if match.groups() else match.group(0)
+                    value = re.sub(r"\s+", " ", value).strip(" -:\t\r\n") if isinstance(value, str) else value
+                    
+                    # Calculate confidence based on match quality
+                    confidence = 0.85 if len(field_patterns) > 1 else 0.75
+                    
+                    # Validate field-specific requirements
+                    confidence = cls._validate_field_quality(field_name, value, confidence)
+                    
+                    attempts.append({
+                        "pattern": pattern[:100],  # First 100 chars
+                        "value": value,
+                        "confidence": confidence,
+                        "matched": True
+                    })
+                    
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_value = value
+            
+            all_attempts[field_name] = attempts
+            
+            if best_value:
+                successful[field_name] = (best_value, best_confidence)
+        
+        return {
+            "successful": successful,
+            "all_attempts": all_attempts
+        }
+    
+    @classmethod
+    def _validate_field_quality(cls, field_name: str, value: str, base_confidence: float) -> float:
+        """Validate field quality and adjust confidence score"""
+        if not isinstance(value, str):
+            return 0.0
+        
+        # Phone: must have at least 10 digits
+        if field_name == "phone":
+            digit_count = len(re.sub(r"\D", "", value))
+            has_country_code = value.startswith("+") or value.startswith("1-") or value.startswith("91")
+            
+            if digit_count < 10:
+                # Heavy penalty for incomplete phone numbers
+                return 0.2  # Very low confidence for partial numbers like "884"
+            elif digit_count == 10:
+                # Standard 10-digit without country code
+                return 0.90
+            elif digit_count == 11 and value.startswith("1"):
+                # US format with leading 1
+                return 0.92
+            elif digit_count > 10 and value.startswith("+"):
+                # International format with country code (best)
+                return 0.95
+            else:
+                return 0.93  # Other valid formats
+        
+        # Email: must have valid format with @ and domain
+        if field_name == "email":
+            if "@" not in value or "." not in value.split("@")[-1]:
+                return 0.2
+            return 0.95
+        
+        # Amount: must have numeric value
+        if field_name == "amount":
+            if not re.search(r"\d", value):
+                return 0.2
+            return base_confidence
+        
+        # Date: should have 4-digit year
+        if field_name == "date":
+            if not re.search(r"\d{4}", value):
+                return 0.4
+            return base_confidence
+        
+        return base_confidence
 
     @classmethod
     def _extract_with_patterns(cls, text: str, patterns: list, case_sensitive: bool = False) -> Tuple[Optional[str], float]:

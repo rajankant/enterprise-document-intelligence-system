@@ -23,7 +23,9 @@ class DocumentExtraction(BaseModel):
     document_name: str
     extracted_fields: Dict[str, ExtractedField]
     overall_confidence: float = Field(..., ge=0, le=1)
-    raw_text: str
+    raw_text: str  # Full OCR text from all pages
+    raw_ocr_data: Optional[Dict[str, Any]] = None  # Detailed OCR data per page
+    all_extraction_attempts: Optional[Dict[str, Any]] = None  # All extraction attempts (including failed ones)
     page_count: int
     processing_time: float  # in seconds
     error: Optional[str] = None
@@ -42,6 +44,8 @@ class DocumentExtraction(BaseModel):
                 },
                 "overall_confidence": 0.92,
                 "raw_text": "...",
+                "raw_ocr_data": {},
+                "all_extraction_attempts": {},
                 "page_count": 1,
                 "processing_time": 2.5,
                 "error": None

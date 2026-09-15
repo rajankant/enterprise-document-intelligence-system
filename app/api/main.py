@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.models.schemas import ExtractionResponse, DocumentExtraction, ExtractionRequest
 from app.src.pipeline import ExtractionPipeline
+from rag.rag_service import RAGService
 
 # Initialize app
 app = FastAPI(
@@ -26,6 +27,7 @@ app.add_middleware(
 
 # Initialize pipeline
 pipeline = ExtractionPipeline()
+rag_service = RAGService()
 
 
 @app.get("/health")
@@ -154,6 +156,39 @@ async def get_document_types():
             "receipt",
             "job_description"
         ]
+    }
+
+
+@app.get("/rag/demo-documents")
+async def get_demo_documents():
+    """List built-in sample PDFs for local testing."""
+    sample_dir = Path(__file__).resolve().parents[1] / "input"
+    docs = [
+        str(path.name)
+        for path in sorted(sample_dir.glob("*.pdf"))
+        if path.is_file()
+    ]
+    return {"documents": docs}
+
+
+@app.post("/rag/query")
+async def rag_query(question: str, document_paths: list[str] | None = None):
+    """Simple retrieval endpoint for local document grounding."""
+    if not question or not question.strip():
+        raise HTTPException(status_code=400, detail="A question is required")
+
+    if document_paths:
+        files = document_paths
+    else:
+        sample_dir = Path(__file__).resolve().parents[1] / "input"
+        files = [str(path) for path in sorted(sample_dir.glob("*.pdf")) if path.is_file()]
+
+    rag_service.index_documents(files)
+    results = rag_service.query(question)
+    return {
+        "question": question,
+        "results": results,
+        "count": len(results),
     }
 
 

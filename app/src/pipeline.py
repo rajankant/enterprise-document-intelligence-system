@@ -43,8 +43,10 @@ class ExtractionPipeline:
             # Step 1: Extract text using OCR (PaddleOCR)
             raw_text = extract_text_from_pdf(pdf_path)
             
-            # Step 2: Extract using rules
-            extracted_data = RuleBasedExtractor.extract_all(raw_text, document_type)
+            # Step 2: Extract using rules with ALL attempts
+            extraction_attempts = RuleBasedExtractor.extract_all_with_attempts(raw_text, document_type)
+            extracted_data = extraction_attempts.get("successful", {})
+            all_attempts = extraction_attempts.get("all_attempts", {})
             
             # Step 3: Extract using LLM if enabled
             if self.use_llm and self.llm_extractor:
@@ -60,12 +62,17 @@ class ExtractionPipeline:
             # Step 5: Calculate confidence scores
             overall_confidence = self.scorer.score_extraction_quality(validated_fields)
             
-            # Build final result
+            # Build final result with ALL data
             result = DocumentExtraction(
                 document_name=Path(pdf_path).name,
                 extracted_fields=validated_fields,
                 overall_confidence=round(overall_confidence, 2),
-                raw_text=raw_text[:1000],  # First 1000 chars
+                raw_text=raw_text,  # FULL raw text
+                raw_ocr_data={
+                    "total_length": len(raw_text),
+                    "pages": len(raw_text.split("--- Page"))
+                },
+                all_extraction_attempts=all_attempts,
                 page_count=self._get_page_count(pdf_path),
                 processing_time=round(time.time() - start_time, 2),
                 error=None
@@ -80,6 +87,8 @@ class ExtractionPipeline:
                 extracted_fields={},
                 overall_confidence=0.0,
                 raw_text="",
+                raw_ocr_data={},
+                all_extraction_attempts={},
                 page_count=0,
                 processing_time=round(processing_time, 2),
                 error=str(e)
